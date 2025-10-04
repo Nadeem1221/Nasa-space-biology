@@ -66,14 +66,49 @@ const appData = {
   ]
 };
 
-// Header Component
+// Header Component (includes theme toggle)
 const Header = () => {
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('color-scheme');
+      if (saved) return saved;
+    } catch (e) {
+      // ignore
+    }
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return 'dark';
+    }
+    return 'light';
+  });
+
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute('data-color-scheme', theme);
+      localStorage.setItem('color-scheme', theme);
+    } catch (e) {
+      // ignore
+    }
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+
   return (
     <header className="header">
       <div className="header-content">
         <div className="logo">
           <div className="logo-text">🚀 Space Biology Dashboard</div>
           <div className="nasa-badge">NASA</div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          >
+            {theme === 'dark' ? '🌞' : '🌙'}
+          </button>
         </div>
       </div>
     </header>
@@ -84,6 +119,17 @@ const Header = () => {
 const SearchSection = ({ searchQuery, setSearchQuery, onSearch, categoryFilter, setCategoryFilter, missionFilter, setMissionFilter }) => {
   const handleSearch = (e) => {
     e.preventDefault();
+    onSearch();
+  };
+
+  const suggestions = searchQuery
+    ? appData.experiments
+        .filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()) || e.id.toLowerCase().includes(searchQuery.toLowerCase()))
+        .slice(0, 6)
+    : [];
+
+  const handleSuggestionClick = (title) => {
+    setSearchQuery(title);
     onSearch();
   };
 
@@ -101,12 +147,21 @@ const SearchSection = ({ searchQuery, setSearchQuery, onSearch, categoryFilter, 
           🔍
         </button>
       </form>
+      {suggestions.length > 0 && (
+        <div className="suggestions" role="listbox">
+          {suggestions.map((s) => (
+            <button key={s.id} className="suggestion-item" onClick={() => handleSuggestionClick(s.title)}>
+              {s.title} <small className="suggestion-meta"> — {s.id}</small>
+            </button>
+          ))}
+        </div>
+      )}
       
       <div className="filters">
         <div className="filter-group">
           <label className="filter-label">Category</label>
           <select 
-            className="filter-select"
+            className="filter-select form-control"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
           >
@@ -121,7 +176,7 @@ const SearchSection = ({ searchQuery, setSearchQuery, onSearch, categoryFilter, 
         <div className="filter-group">
           <label className="filter-label">Mission</label>
           <select 
-            className="filter-select"
+            className="filter-select form-control"
             value={missionFilter}
             onChange={(e) => setMissionFilter(e.target.value)}
           >
@@ -333,7 +388,7 @@ const KnowledgeGraph = () => {
 };
 
 // Experiment Card Component
-const ExperimentCard = ({ experiment }) => {
+const ExperimentCard = ({ experiment, onOpen }) => {
   const getCategoryClass = (category) => {
     const categoryMap = {
       'Plant Biology': 'category-plant',
@@ -345,7 +400,7 @@ const ExperimentCard = ({ experiment }) => {
   };
 
   return (
-    <div className="experiment-card">
+    <div className="experiment-card" tabIndex={0} role="button" onClick={() => onOpen(experiment)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(experiment); }}>
       <div className="card-header">
         <div className="experiment-id">{experiment.id}</div>
         <div className={`category-badge ${getCategoryClass(experiment.category)}`}>
@@ -365,7 +420,7 @@ const ExperimentCard = ({ experiment }) => {
 };
 
 // Experiments Grid Component
-const ExperimentsGrid = ({ experiments, categoryFilter, missionFilter }) => {
+const ExperimentsGrid = ({ experiments, categoryFilter, missionFilter, onOpen }) => {
   const filteredExperiments = experiments.filter(exp => {
     const categoryMatch = !categoryFilter || exp.category === categoryFilter;
     const missionMatch = !missionFilter || exp.impact.toLowerCase().includes(missionFilter.toLowerCase());
@@ -375,7 +430,7 @@ const ExperimentsGrid = ({ experiments, categoryFilter, missionFilter }) => {
   return (
     <div className="experiments-grid">
       {filteredExperiments.map((experiment) => (
-        <ExperimentCard key={experiment.id} experiment={experiment} />
+        <ExperimentCard key={experiment.id} experiment={experiment} onOpen={() => onOpen(experiment)} />
       ))}
     </div>
   );
@@ -440,6 +495,36 @@ const FortuneCookie = () => {
   );
 };
 
+// Experiment Modal
+const ExperimentModal = ({ experiment, onClose }) => {
+  if (!experiment) return null;
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const handleBackdropClick = (e) => {
+    if (e.target === e.currentTarget) onClose();
+  };
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={handleBackdropClick}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+        <h2>{experiment.title}</h2>
+        <p className="modal-id">{experiment.id} • {experiment.category}</p>
+        <p>{experiment.description}</p>
+        <div className="modal-meta">
+          <div><strong>Organism:</strong> {experiment.organism}</div>
+          <div><strong>Duration:</strong> {experiment.duration}</div>
+          <div><strong>Mission:</strong> {experiment.mission}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Quick Stats Component
 const QuickStats = ({ experiments }) => {
   const stats = {
@@ -481,6 +566,7 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [missionFilter, setMissionFilter] = useState('');
+  const [selectedExperiment, setSelectedExperiment] = useState(null);
 
   const handleSearch = () => {
     if (!searchQuery.trim()) return;
@@ -497,7 +583,7 @@ const Dashboard = () => {
   const tabs = [
     { id: 'summary', label: '🤖 AI Summary', component: <AISummary searchQuery={searchQuery} isLoading={isLoading} /> },
     { id: 'graph', label: '🕸️ Knowledge Graph', component: <KnowledgeGraph /> },
-    { id: 'experiments', label: '🧪 Experiments', component: <ExperimentsGrid experiments={appData.experiments} categoryFilter={categoryFilter} missionFilter={missionFilter} /> },
+    { id: 'experiments', label: '🧪 Experiments', component: <ExperimentsGrid experiments={appData.experiments} categoryFilter={categoryFilter} missionFilter={missionFilter} onOpen={(exp) => setSelectedExperiment(exp)} /> },
     { id: 'impact', label: '🚀 Impact Explorer', component: <ImpactExplorer missionFilter={missionFilter} /> }
   ];
 
@@ -531,6 +617,9 @@ const Dashboard = () => {
         <div className="tab-content">
           {tabs.find(tab => tab.id === activeTab)?.component}
         </div>
+        {selectedExperiment && (
+          <ExperimentModal experiment={selectedExperiment} onClose={() => setSelectedExperiment(null)} />
+        )}
       </div>
 
       <div className="right-sidebar">
